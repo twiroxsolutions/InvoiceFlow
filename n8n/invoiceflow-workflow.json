@@ -1,0 +1,315 @@
+{
+  "id": "InvoiceFlowMain1",
+  "name": "InvoiceFlow — AI Invoice Processing",
+  "nodes": [
+    {
+      "id": "if-email-trigger",
+      "name": "New Invoice Email",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        340
+      ],
+      "parameters": {
+        "mailbox": "INBOX/invoices",
+        "postProcessAction": "read",
+        "options": {}
+      },
+      "credentials": {
+        "imap": {
+          "id": "credimap00000001",
+          "name": "Invoice Inbox (IMAP)"
+        }
+      }
+    },
+    {
+      "id": "if-extract-pdf",
+      "name": "Extract PDF Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        180,
+        340
+      ],
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "attachment_0"
+      }
+    },
+    {
+      "id": "if-openai-extract",
+      "name": "OpenAI — Extract Invoice Fields",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        420,
+        340
+      ],
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Extract vendorName, invoiceNumber, amount, currency, issueDate, dueDate from this invoice text. Return strict JSON with an extractionConfidence field (0-1). Text: {{ $json.text }}",
+              "role": "user"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "credopenai000001",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "if-validate",
+      "name": "Validate & Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        340
+      ],
+      "parameters": {
+        "jsCode": "// Normalize the AI output before it reaches the API\nconst inv = $json.message?.content ?? $json;\nif (!inv.vendorName || !inv.invoiceNumber || !inv.amount) {\n  throw new Error('Extraction incomplete: ' + JSON.stringify(inv));\n}\nreturn [{\n  json: {\n    vendorName: String(inv.vendorName).trim(),\n    invoiceNumber: String(inv.invoiceNumber).trim().toUpperCase(),\n    amount: Number(inv.amount),\n    currency: String(inv.currency || 'USD').toUpperCase(),\n    issueDate: inv.issueDate ?? null,\n    dueDate: inv.dueDate ?? null,\n    extractionConfidence: Number(inv.extractionConfidence ?? 0),\n    extractionModel: 'gpt-4.1-mini',\n    sourceMessageId: $('New Invoice Email').item.json.metadata?.['message-id'] ?? null\n  }\n}];"
+      }
+    },
+    {
+      "id": "if-save-api",
+      "name": "Save to InvoiceFlow API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        340
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8080/api/invoices/inbound",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "if-confidence-gate",
+      "name": "Confidence ≥ 0.90?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1140,
+        340
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.extractionConfidence }}",
+              "rightValue": 0.9,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "if-slack-notify",
+      "name": "Notify #finance in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1400,
+        200
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#finance",
+          "mode": "name"
+        },
+        "text": "=✅ Invoice {{ $json.invoiceNumber }} from {{ $json.vendorName }} processed — {{ $json.amount }} {{ $json.currency }} (AI confidence {{ Math.round($json.extractionConfidence * 100) }}%)",
+        "otherOptions": {}
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "credslack0000001",
+          "name": "Slack — InvoiceFlow Bot"
+        }
+      }
+    },
+    {
+      "id": "if-sheets-log",
+      "name": "Append to Ledger (Google Sheets)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1400,
+        400
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "invoice-ledger-2026",
+          "mode": "list",
+          "cachedResultName": "Invoice Ledger 2026"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Processed",
+          "mode": "list",
+          "cachedResultName": "Processed"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "credgsheets00001",
+          "name": "Google Sheets — Finance"
+        }
+      }
+    },
+    {
+      "id": "if-review-escalate",
+      "name": "Escalate for Human Review",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1400,
+        580
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#invoice-review",
+          "mode": "name"
+        },
+        "text": "=⚠️ Invoice {{ $json.invoiceNumber }} needs review — AI confidence {{ Math.round($json.extractionConfidence * 100) }}% is below the 90% threshold. Review: http://localhost:8080/api/invoices",
+        "otherOptions": {}
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "credslack0000001",
+          "name": "Slack — InvoiceFlow Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "New Invoice Email": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "OpenAI — Extract Invoice Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI — Extract Invoice Fields": {
+      "main": [
+        [
+          {
+            "node": "Validate & Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Normalize": {
+      "main": [
+        [
+          {
+            "node": "Save to InvoiceFlow API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to InvoiceFlow API": {
+      "main": [
+        [
+          {
+            "node": "Confidence ≥ 0.90?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence ≥ 0.90?": {
+      "main": [
+        [
+          {
+            "node": "Notify #finance in Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append to Ledger (Google Sheets)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Escalate for Human Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "invoiceflow"
+  }
+}

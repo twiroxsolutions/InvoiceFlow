@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InvoiceFlow — AI Invoice Processing Dashboard</title>
+<style>
+  :root {
+    --surface: #0B1B34;
+    --surface-2: #10254474;
+    --card: #112544;
+    --card-edge: #1d3a63;
+    --ink: #ffffff;
+    --ink-2: #b9c4d4;
+    --ink-3: #7e8ba0;
+    --blue: #3987e5;
+    --warn: #fab219;
+    --good: #0ca30c;
+    --accent: #2E90FF;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--surface);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    padding: 28px 36px;
+    min-height: 100vh;
+  }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+  .logo {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), #1c5cab);
+    display: grid; place-items: center; font-weight: 800; font-size: 19px; color: #fff;
+  }
+  h1 { font-size: 21px; font-weight: 700; letter-spacing: 0.2px; }
+  .sub { font-size: 13px; color: var(--ink-3); margin-top: 2px; }
+  .badge-sample {
+    margin-left: auto; font-size: 11.5px; font-weight: 600; letter-spacing: 0.4px;
+    color: var(--ink-2); border: 1px solid var(--card-edge); border-radius: 999px;
+    padding: 5px 12px;
+  }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
+  .tile {
+    background: var(--card); border: 1px solid var(--card-edge); border-radius: 12px;
+    padding: 16px 18px 14px;
+  }
+  .tile .k { font-size: 12px; font-weight: 600; color: var(--ink-3); letter-spacing: 0.5px; text-transform: uppercase; }
+  .tile .v { font-size: 30px; font-weight: 750; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .tile .d { font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+  .grid { display: grid; grid-template-columns: 380px 1fr; gap: 14px; }
+  .card {
+    background: var(--card); border: 1px solid var(--card-edge); border-radius: 12px; padding: 18px;
+  }
+  .card h2 { font-size: 13.5px; font-weight: 650; color: var(--ink-2); letter-spacing: 0.3px; margin-bottom: 14px; }
+  /* --- status bars --- */
+  .row { margin-bottom: 13px; }
+  .row .lab { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 5px; }
+  .row .lab .n { color: var(--ink-2); font-weight: 600; }
+  .row .lab .c { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .track { height: 14px; background: var(--surface-2); border-radius: 4px; position: relative; }
+  .bar {
+    position: absolute; inset: 0 auto 0 0; border-radius: 4px 4px 4px 4px;
+    background: var(--blue); min-width: 4px; transition: width .4s ease;
+  }
+  .bar.warn { background: var(--warn); }
+  .row.warn .lab .n { color: var(--warn); }
+  .foot { font-size: 11.5px; color: var(--ink-3); margin-top: 10px; line-height: 1.5; }
+  /* --- table --- */
+  table { width: 100%; border-collapse: collapse; font-size: 12.8px; }
+  th {
+    text-align: left; color: var(--ink-3); font-weight: 600; font-size: 11.5px;
+    letter-spacing: 0.4px; text-transform: uppercase; padding: 0 10px 9px;
+    border-bottom: 1px solid var(--card-edge);
+  }
+  td { padding: 9px 10px; border-bottom: 1px solid #162e52; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  td.vendor { color: var(--ink); font-weight: 600; }
+  td.amt { text-align: right; color: var(--ink); font-weight: 650; }
+  th.amt { text-align: right; }
+  tr:hover td { background: #14294b; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700;
+    padding: 3px 9px; border-radius: 999px; letter-spacing: 0.3px;
+  }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .chip.PROCESSED { color: var(--blue); background: #3987e51a; }
+  .chip.NEEDS_REVIEW { color: var(--warn); background: #fab2191a; }
+  .chip.APPROVED { color: var(--good); background: #0ca30c1a; }
+  .chip.PAID { color: var(--ink-2); background: #b9c4d414; }
+  .conf { color: var(--ink-3); }
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo">IF</div>
+    <div>
+      <h1>InvoiceFlow</h1>
+      <div class="sub">AI invoice processing — email in, structured data out</div>
+    </div>
+    <div class="badge-sample">SAMPLE DATA</div>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>PIPELINE STATUS</h2>
+      <div id="bars"></div>
+      <div class="foot">Invoices with AI confidence &lt; 0.90 are routed to human review (⚠) instead of auto-processing.</div>
+    </div>
+    <div class="card">
+      <h2>RECENT INVOICES</h2>
+      <table>
+        <thead>
+          <tr><th>Vendor</th><th>Invoice #</th><th class="amt">Amount</th><th>Status</th><th>AI conf.</th><th>Received</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+const fmtMoney = (a, c) => new Intl.NumberFormat("en-US", { style: "currency", currency: c }).format(a);
+const fmtAgo = iso => {
+  const h = Math.max(1, Math.round((Date.now() - new Date(iso)) / 36e5));
+  return h < 24 ? h + "h ago" : Math.round(h / 24) + "d ago";
+};
+const STATUS_LABEL = { PROCESSED: "Auto-processed", NEEDS_REVIEW: "⚠ Needs review", APPROVED: "Approved", PAID: "Paid" };
+
+async function load() {
+  const [stats, invoices] = await Promise.all([
+    fetch("/api/stats").then(r => r.json()),
+    fetch("/api/invoices").then(r => r.json()),
+  ]);
+
+  const hours = (stats.minutesSaved / 60).toFixed(1);
+  document.getElementById("tiles").innerHTML = `
+    <div class="tile"><div class="k">Invoices processed</div><div class="v">${stats.totalInvoices}</div><div class="d">since pipeline launch</div></div>
+    <div class="tile"><div class="k">Automation rate</div><div class="v">${Math.round(stats.automationRate * 100)}%</div><div class="d">stored with zero manual entry</div></div>
+    <div class="tile"><div class="k">Avg AI confidence</div><div class="v">${(stats.avgConfidence * 100).toFixed(1)}%</div><div class="d">gpt-4.1-mini extraction</div></div>
+    <div class="tile"><div class="k">Manual work avoided</div><div class="v">${hours} h</div><div class="d">at 8 min per invoice</div></div>`;
+
+  const max = Math.max(...Object.values(stats.byStatus));
+  document.getElementById("bars").innerHTML = Object.entries(stats.byStatus).map(([s, n]) => `
+    <div class="row ${s === "NEEDS_REVIEW" ? "warn" : ""}">
+      <div class="lab"><span class="n">${STATUS_LABEL[s]}</span><span class="c">${n}</span></div>
+      <div class="track" title="${STATUS_LABEL[s]}: ${n} invoices"><div class="bar ${s === "NEEDS_REVIEW" ? "warn" : ""}" style="width:${max ? (n / max) * 100 : 0}%"></div></div>
+    </div>`).join("");
+
+  document.getElementById("rows").innerHTML = invoices.slice(0, 11).map(i => `
+    <tr>
+      <td class="vendor">${i.vendorName}</td>
+      <td>${i.invoiceNumber}</td>
+      <td class="amt">${fmtMoney(i.amount, i.currency)}</td>
+      <td><span class="chip ${i.status}">${STATUS_LABEL[i.status].replace("⚠ ", "")}</span></td>
+      <td class="conf">${i.extractionConfidence ? (i.extractionConfidence * 100).toFixed(0) + "%" : "—"}</td>
+      <td class="conf">${fmtAgo(i.receivedAt)}</td>
+    </tr>`).join("");
+}
+load();
+</script>
+</body>
+</html>

@@ -5,6 +5,7 @@ import com.invoiceflow.api.model.InvoiceStatus;
 import com.invoiceflow.api.repository.InvoiceRepository;
 import com.invoiceflow.api.web.dto.InboundInvoiceRequest;
 import com.invoiceflow.api.web.dto.StatsResponse;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,9 +34,10 @@ public class InvoiceService {
 
     @Transactional
     public Invoice ingest(InboundInvoiceRequest request) {
-        repository.findByInvoiceNumber(request.invoiceNumber()).ifPresent(existing -> {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Invoice %s already ingested".formatted(request.invoiceNumber()));
+        // Normalise once so the duplicate check and the stored value always agree.
+        String invoiceNumber = request.invoiceNumber().trim();
+        repository.findByInvoiceNumber(invoiceNumber).ifPresent(existing -> {
+            throw alreadyIngested(invoiceNumber);
         });
 
         InvoiceStatus status = request.extractionConfidence() >= REVIEW_THRESHOLD
@@ -44,7 +46,7 @@ public class InvoiceService {
 
         Invoice invoice = new Invoice(
                 request.vendorName().trim(),
-                request.invoiceNumber().trim(),
+                invoiceNumber,
                 request.amount(),
                 request.currency().toUpperCase(),
                 request.issueDate(),
@@ -56,7 +58,18 @@ public class InvoiceService {
                 Instant.now(),
                 status == InvoiceStatus.PROCESSED ? Instant.now() : null
         );
-        return repository.save(invoice);
+        try {
+            // Flush now so a concurrent insert of the same number fails here, not at commit.
+            return repository.saveAndFlush(invoice);
+        } catch (DataIntegrityViolationException e) {
+            // Another request inserted the same number between our check and our insert.
+            throw alreadyIngested(invoiceNumber);
+        }
+    }
+
+    private static ResponseStatusException alreadyIngested(String invoiceNumber) {
+        return new ResponseStatusException(HttpStatus.CONFLICT,
+                "Invoice %s already ingested".formatted(invoiceNumber));
     }
 
     @Transactional(readOnly = true)

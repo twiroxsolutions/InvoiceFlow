@@ -124,6 +124,8 @@ const fmtAgo = iso => {
   const h = Math.max(1, Math.round((Date.now() - new Date(iso)) / 36e5));
   return h < 24 ? h + "h ago" : Math.round(h / 24) + "d ago";
 };
+// Vendor name and invoice number come from AI extraction of inbound email, so treat them as untrusted.
+const esc = v => String(v ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 const STATUS_LABEL = { PROCESSED: "Auto-processed", NEEDS_REVIEW: "⚠ Needs review", APPROVED: "Approved", PAID: "Paid" };
 
 async function load() {
@@ -148,8 +150,8 @@ async function load() {
 
   document.getElementById("rows").innerHTML = invoices.slice(0, 11).map(i => `
     <tr>
-      <td class="vendor">${i.vendorName}</td>
-      <td>${i.invoiceNumber}</td>
+      <td class="vendor">${esc(i.vendorName)}</td>
+      <td>${esc(i.invoiceNumber)}</td>
       <td class="amt">${fmtMoney(i.amount, i.currency)}</td>
       <td><span class="chip ${i.status}">${STATUS_LABEL[i.status].replace("⚠ ", "")}</span></td>
       <td class="conf">${i.extractionConfidence ? (i.extractionConfidence * 100).toFixed(0) + "%" : "—"}</td>
